@@ -24,28 +24,57 @@
 
 package tk.mybatis.mapper.generator;
 
+import java.text.MessageFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Properties;
+
 import org.mybatis.generator.api.CommentGenerator;
 import org.mybatis.generator.api.IntrospectedColumn;
 import org.mybatis.generator.api.IntrospectedTable;
-import org.mybatis.generator.api.dom.java.*;
+import org.mybatis.generator.api.dom.java.CompilationUnit;
+import org.mybatis.generator.api.dom.java.Field;
+import org.mybatis.generator.api.dom.java.InnerClass;
+import org.mybatis.generator.api.dom.java.InnerEnum;
+import org.mybatis.generator.api.dom.java.JavaElement;
+import org.mybatis.generator.api.dom.java.Method;
+import org.mybatis.generator.api.dom.java.Parameter;
+import org.mybatis.generator.api.dom.java.TopLevelClass;
 import org.mybatis.generator.api.dom.xml.TextElement;
 import org.mybatis.generator.api.dom.xml.XmlElement;
 import org.mybatis.generator.config.MergeConstants;
 import org.mybatis.generator.internal.util.StringUtility;
 
-import java.text.MessageFormat;
-import java.util.Properties;
+/**
+ * if you use this jar , please build jackiehe2018/generator/generator-jackie and install to maven repository .
+ * add <dependency>
+ *          <groupId>tk.mybatis</groupId>
+ *          <artifactId>mapper-spring-boot-starter</artifactId>
+ *          <version>1.1.4</version>
+ *      </dependency>
+ * and  <plugin>
+ *              <groupId>org.mybatis.generator</groupId>
+ *              <artifactId>mybatis-generator-maven-plugin</artifactId>
+ *              <version>1.3.5</version>
+ *      </plugin>
+ */
 
 public class MapperCommentGenerator implements CommentGenerator {
     //开始的分隔符，例如mysql为`，sqlserver为[
     private String beginningDelimiter = "";
     //结束的分隔符，例如mysql为`，sqlserver为]
     private String endingDelimiter = "";
-
+    //强制生成注解
+    private boolean forceAnnotation;
+    private Properties properties = new Properties();
+    private boolean suppressDate = false;
+    private boolean suppressAllComments = false;
+    private SimpleDateFormat dateFormat;
     public MapperCommentGenerator() {
         super();
     }
 
+    @Override
     public void addJavaFileComment(CompilationUnit compilationUnit) {
         return;
     }
@@ -55,6 +84,7 @@ public class MapperCommentGenerator implements CommentGenerator {
      *
      * @param xmlElement
      */
+    @Override
     public void addComment(XmlElement xmlElement) {
         xmlElement.addElement(new TextElement("<!--"));
         StringBuilder sb = new StringBuilder();
@@ -64,10 +94,12 @@ public class MapperCommentGenerator implements CommentGenerator {
         xmlElement.addElement(new TextElement("-->"));
     }
 
+    @Override
     public void addRootComment(XmlElement rootElement) {
         return;
     }
 
+    @Override
     public void addConfigurationProperties(Properties properties) {
         String beginningDelimiter = properties.getProperty("beginningDelimiter");
         if (StringUtility.stringHasValue(beginningDelimiter)) {
@@ -76,6 +108,17 @@ public class MapperCommentGenerator implements CommentGenerator {
         String endingDelimiter = properties.getProperty("endingDelimiter");
         if (StringUtility.stringHasValue(endingDelimiter)) {
             this.endingDelimiter = endingDelimiter;
+        }
+        String forceAnnotation = properties.getProperty("forceAnnotation");
+        if (StringUtility.stringHasValue(forceAnnotation)) {
+            this.forceAnnotation = forceAnnotation.equalsIgnoreCase("TRUE");
+        }
+        this.properties.putAll(properties);
+        this.suppressDate = StringUtility.isTrue(properties.getProperty("suppressDate"));
+        this.suppressAllComments = StringUtility.isTrue(properties.getProperty("suppressAllComments"));
+        String dateFormatString = properties.getProperty("dateFormat");
+        if (StringUtility.stringHasValue(dateFormatString)) {
+            this.dateFormat = new SimpleDateFormat(dateFormatString);
         }
     }
 
@@ -109,9 +152,11 @@ public class MapperCommentGenerator implements CommentGenerator {
      * @param innerClass
      * @param introspectedTable
      */
+    @Override
     public void addClassComment(InnerClass innerClass, IntrospectedTable introspectedTable) {
     }
 
+    @Override
     public void addEnumComment(InnerEnum innerEnum, IntrospectedTable introspectedTable) {
     }
 
@@ -122,6 +167,7 @@ public class MapperCommentGenerator implements CommentGenerator {
      * @param introspectedTable
      * @param introspectedColumn
      */
+    @Override
     public void addFieldComment(Field field, IntrospectedTable introspectedTable, IntrospectedColumn introspectedColumn) {
         if (StringUtility.stringHasValue(introspectedColumn.getRemarks())) {
             field.addJavaDocLine("/**");
@@ -130,6 +176,7 @@ public class MapperCommentGenerator implements CommentGenerator {
             sb.append(introspectedColumn.getRemarks());
             field.addJavaDocLine(sb.toString());
             field.addJavaDocLine(" */");
+            field.addJavaDocLine( "@ApiModelProperty(\""+ introspectedColumn.getRemarks() + "\")");
         }
         //添加注解
         if (field.isTransient()) {
@@ -153,6 +200,8 @@ public class MapperCommentGenerator implements CommentGenerator {
             field.addAnnotation("@Column(name = \"" + getDelimiterName(column) + "\")");
         } else if (StringUtility.stringHasValue(beginningDelimiter) || StringUtility.stringHasValue(endingDelimiter)) {
             field.addAnnotation("@Column(name = \"" + getDelimiterName(column) + "\")");
+        } else if(forceAnnotation){
+            field.addAnnotation("@Column(name = \"" + getDelimiterName(column) + "\")");
         }
         if (introspectedColumn.isIdentity()) {
             if (introspectedTable.getTableConfiguration().getGeneratedKey().getRuntimeSqlStatement().equals("JDBC")) {
@@ -169,22 +218,59 @@ public class MapperCommentGenerator implements CommentGenerator {
     }
 
     /**
-     * Example使用
-     *
+     * 设置序列化ID的注释
      * @param field
      * @param introspectedTable
      */
+    @Override
     public void addFieldComment(Field field, IntrospectedTable introspectedTable) {
+        if (!this.suppressAllComments) {
+            field.addJavaDocLine("/**");
+            field.addJavaDocLine(" * Serializable ID");
+            field.addJavaDocLine(" */");
+        }
     }
 
+    @Override
     public void addModelClassComment(TopLevelClass topLevelClass, IntrospectedTable introspectedTable) {
-
+        if (!this.suppressAllComments) {
+            topLevelClass.addJavaDocLine("import lombok.Data;");
+            topLevelClass.addJavaDocLine("import lombok.NoArgsConstructor;");
+            topLevelClass.addJavaDocLine("import io.swagger.annotations.ApiModel;");
+            topLevelClass.addJavaDocLine("import io.swagger.annotations.ApiModelProperty;");
+            topLevelClass.addJavaDocLine("import lombok.experimental.Accessors;\n");
+            topLevelClass.addJavaDocLine("/**");
+            String remarkLine = "";
+            String remarks = introspectedTable.getRemarks();
+            if (StringUtility.stringHasValue(remarks)) {
+                String[] remarkLines = remarks.split(System.getProperty("line.separator"));
+                String[] var5 = remarkLines;
+                int var6 = remarkLines.length;
+                for(int var7 = 0; var7 < var6; ++var7) {
+                    remarkLine += var5[var7];
+                }
+            }
+            StringBuilder sb = new StringBuilder();
+            String name = String.valueOf(introspectedTable.getFullyQualifiedTable());
+            sb.append(" * @className " + introspectedTable.getTableConfiguration().getDomainObjectName() + "\n");
+            sb.append(" * @description " + remarkLine + " \n " + "* @author Jackie" + "\n");
+            sb.append(" * @date " + new SimpleDateFormat("yyyy年MM月dd日 HH:mm:ss").format(new Date()) + "\n");
+            sb.append(" * @version 1.0");
+            topLevelClass.addJavaDocLine(sb.toString());
+            this.addJavadocTag(topLevelClass, true);
+            topLevelClass.addJavaDocLine(" */\n");
+            topLevelClass.addJavaDocLine("@Data");
+            topLevelClass.addJavaDocLine("@NoArgsConstructor");
+            topLevelClass.addJavaDocLine("@Accessors(chain=true)");
+            topLevelClass.addJavaDocLine("@ApiModel(\""+ remarkLine +"\")");
+        }
     }
 
     /**
      * @param method
      * @param introspectedTable
      */
+    @Override
     public void addGeneralMethodComment(Method method, IntrospectedTable introspectedTable) {
     }
 
@@ -195,6 +281,7 @@ public class MapperCommentGenerator implements CommentGenerator {
      * @param introspectedTable
      * @param introspectedColumn
      */
+    @Override
     public void addGetterComment(Method method, IntrospectedTable introspectedTable, IntrospectedColumn introspectedColumn) {
         StringBuilder sb = new StringBuilder();
         method.addJavaDocLine("/**");
@@ -222,6 +309,7 @@ public class MapperCommentGenerator implements CommentGenerator {
      * @param introspectedTable
      * @param introspectedColumn
      */
+    @Override
     public void addSetterComment(Method method, IntrospectedTable introspectedTable, IntrospectedColumn introspectedColumn) {
         StringBuilder sb = new StringBuilder();
         method.addJavaDocLine("/**");
@@ -250,6 +338,7 @@ public class MapperCommentGenerator implements CommentGenerator {
      * @param introspectedTable
      * @param markAsDoNotDelete
      */
+    @Override
     public void addClassComment(InnerClass innerClass, IntrospectedTable introspectedTable, boolean markAsDoNotDelete) {
     }
 }
